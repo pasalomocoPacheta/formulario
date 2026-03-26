@@ -205,6 +205,16 @@
   </div>
 
   <script>
+    window.addEventListener('error', function (e) {
+  const msg = [
+    'window.onerror:',
+    e.message || '',
+    e.filename || '',
+    'line=' + (e.lineno || ''),
+    'col=' + (e.colno || '')
+  ].join(' ');
+  console.error(msg);
+});
     (function () {
       const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxUdTMJG7mTaEyViPnvNI7I_X8YMv8uDthFXsTvFCOatDOQRVWY5Sk4wd7S8kYdjuqL/exec';
 
@@ -363,6 +373,11 @@
     pendingChallengeResolve = resolve;
     pendingChallengeReject = reject;
 
+    if (pendingChallengeTimer) {
+      clearTimeout(pendingChallengeTimer);
+      pendingChallengeTimer = null;
+    }
+
     pendingChallengeTimer = setTimeout(function () {
       pendingChallengeResolve = null;
       pendingChallengeReject = null;
@@ -387,10 +402,26 @@
           }
           pendingChallengeResolve = null;
           pendingChallengeReject = null;
-          reject(new Error('Challenge loaded but callback was not executed'));
+          reject(new Error('Challenge loaded, but callback did not run'));
         }
-      }, 500);
+      }, 800);
     };
+
+    s.onerror = function (ev) {
+      if (pendingChallengeTimer) {
+        clearTimeout(pendingChallengeTimer);
+        pendingChallengeTimer = null;
+      }
+
+      console.error('Challenge script network error', ev, s.src);
+      pendingChallengeResolve = null;
+      pendingChallengeReject = null;
+      reject(new Error('Challenge script blocked or failed to load'));
+    };
+
+    document.body.appendChild(s);
+  });
+}
 
     s.onerror = function () {
       if (pendingChallengeTimer) {
