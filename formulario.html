@@ -134,12 +134,12 @@
 
       <div class="field">
         <label for="email">Email *</label>
-        <input id="email" name="email" type="email" required maxlength="190">
+        <input id="email" name="email" type="email" required maxlength="190" autocomplete="email">
       </div>
 
       <div class="field">
         <label for="fullName">Full name *</label>
-        <input id="fullName" name="fullName" type="text" required maxlength="100">
+        <input id="fullName" name="fullName" type="text" required maxlength="100" autocomplete="name">
       </div>
 
       <div class="field">
@@ -181,13 +181,8 @@
 
       <input id="loadTimestamp" name="loadTimestamp" type="hidden" value="">
       <input id="submittedAt" name="submittedAt" type="hidden" value="">
-      <input id="challengeToken" name="challengeToken" type="hidden" value="">
-      <input id="challengeTs" name="challengeTs" type="hidden" value="">
-      <input id="powNonce" name="powNonce" type="hidden" value="">
-      <input id="powHash" name="powHash" type="hidden" value="">
-      <input id="uaHash" name="uaHash" type="hidden" value="">
-      <input id="formFingerprint" name="formFingerprint" type="hidden" value="">
-      <input id="formSeal" name="formSeal" type="hidden" value="">
+      <input id="clientFingerprint" name="clientFingerprint" type="hidden" value="">
+      <input id="clientSeal" name="clientSeal" type="hidden" value="">
       <input id="userAgent" name="userAgent" type="hidden" value="">
       <input id="language" name="language" type="hidden" value="">
       <input id="screen" name="screen" type="hidden" value="">
@@ -200,23 +195,12 @@
     </form>
 
     <iframe id="submitFrame" name="submitFrame" title="hidden submit frame"></iframe>
-
     <div id="debug" class="debug"></div>
   </div>
 
   <script>
-    window.addEventListener('error', function (e) {
-  const msg = [
-    'window.onerror:',
-    e.message || '',
-    e.filename || '',
-    'line=' + (e.lineno || ''),
-    'col=' + (e.colno || '')
-  ].join(' ');
-  console.error(msg);
-});
     (function () {
-      const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzVisTqPz3PFf84Cbdz42rcaAPG7An9WlimR57dAIS6NJX7GvipXOvLpk5HUW420jGm/exec';
+      const APPS_SCRIPT_URL = 'PON_AQUI_TU_URL_EXEC';
 
       const form = document.getElementById('contactForm');
       const submitBtn = document.getElementById('submitBtn');
@@ -229,12 +213,8 @@
       const hearAboutEls = document.getElementsByName('hearAbout');
 
       let loadTimestamp = Date.now();
-      let challenge = null;
       let isSubmitting = false;
       let initialFrameLoadPassed = false;
-      let pendingChallengeResolve = null;
-      let pendingChallengeReject = null;
-      let pendingChallengeTimer = null;
 
       form.action = APPS_SCRIPT_URL;
       document.getElementById('loadTimestamp').value = String(loadTimestamp);
@@ -290,9 +270,11 @@
         if (!validEmail(email)) throw new Error('Invalid email');
         if (fullName.length < 2) throw new Error('Invalid full name');
         if (!selected) throw new Error('Select hearAbout');
+
         if (selected.value === 'Other:' && normalizeText(otherText.value).length < 2) {
           throw new Error('Other is required');
         }
+
         if (message.length < 10) throw new Error('Message too short');
         if (!document.getElementById('privacyConsent').checked) throw new Error('Privacy consent required');
       }
@@ -306,7 +288,7 @@
         });
       }
 
-      function buildFormFingerprint() {
+      function buildContentFingerprint() {
         const selected = getSelectedHearAbout();
         const hearAbout = selected ? selected.value : '';
 
@@ -321,153 +303,34 @@
         return sha256Hex(raw);
       }
 
-      function buildFormSeal(challengeObj, uaHash, formFingerprint) {
+      function buildClientFingerprint() {
         const raw = [
-          challengeObj.nonce,
-          challengeObj.ts,
-          uaHash,
-          formFingerprint
+          normalizeText(navigator.userAgent || ''),
+          normalizeText(navigator.language || ''),
+          normalizeText(String(window.screen.width) + 'x' + String(window.screen.height)),
+          normalizeText(Intl.DateTimeFormat().resolvedOptions().timeZone || ''),
+          String(new Date().getTimezoneOffset()),
+          normalizeText(location.href || '')
         ].join('|');
 
         return sha256Hex(raw);
       }
 
-      window.__belugaChallengeCallback = function (data) {
-        challenge = data && data.ok ? data : null;
+      function buildClientSeal(contentFingerprint, clientFingerprint, submittedAt) {
+        const raw = [
+          contentFingerprint,
+          clientFingerprint,
+          String(loadTimestamp),
+          String(submittedAt)
+        ].join('|');
 
-        if (challenge) {
-          log('Challenge received:', challenge);
-
-          if (pendingChallengeTimer) {
-            clearTimeout(pendingChallengeTimer);
-            pendingChallengeTimer = null;
-          }
-
-          if (pendingChallengeResolve) {
-            pendingChallengeResolve(challenge);
-          }
-
-          pendingChallengeResolve = null;
-          pendingChallengeReject = null;
-        } else {
-          if (pendingChallengeTimer) {
-            clearTimeout(pendingChallengeTimer);
-            pendingChallengeTimer = null;
-          }
-
-          if (pendingChallengeReject) {
-            pendingChallengeReject(new Error('Invalid challenge payload'));
-          }
-
-          pendingChallengeResolve = null;
-          pendingChallengeReject = null;
-        }
-      };
-
-      function requestChallenge() {
-  return new Promise(function (resolve, reject) {
-    const old = document.getElementById('challengeScript');
-    if (old && old.parentNode) old.parentNode.removeChild(old);
-
-    challenge = null;
-    pendingChallengeResolve = resolve;
-    pendingChallengeReject = reject;
-
-    if (pendingChallengeTimer) {
-      clearTimeout(pendingChallengeTimer);
-      pendingChallengeTimer = null;
-    }
-
-    pendingChallengeTimer = setTimeout(function () {
-      pendingChallengeResolve = null;
-      pendingChallengeReject = null;
-      reject(new Error('Challenge timeout'));
-    }, 10000);
-
-    const s = document.createElement('script');
-    s.id = 'challengeScript';
-    s.async = true;
-    s.src =
-      APPS_SCRIPT_URL +
-      '?action=challenge' +
-      '&callback=__belugaChallengeCallback' +
-      '&_ts=' + Date.now();
-
-    s.onload = function () {
-      setTimeout(function () {
-        if (!challenge || !challenge.ok) {
-          if (pendingChallengeTimer) {
-            clearTimeout(pendingChallengeTimer);
-            pendingChallengeTimer = null;
-          }
-          pendingChallengeResolve = null;
-          pendingChallengeReject = null;
-          reject(new Error('Challenge loaded, but callback did not run'));
-        }
-      }, 800);
-    };
-
-    s.onerror = function (ev) {
-      if (pendingChallengeTimer) {
-        clearTimeout(pendingChallengeTimer);
-        pendingChallengeTimer = null;
+        return sha256Hex(raw);
       }
 
-      console.error('Challenge script network error', ev, s.src);
-      pendingChallengeResolve = null;
-      pendingChallengeReject = null;
-      reject(new Error('Challenge script blocked or failed to load'));
-    };
-
-    document.body.appendChild(s);
-  });
-}
-
-      function solvePow(challengeObj, formFingerprint) {
-        const prefix = '0'.repeat(challengeObj.difficulty);
-
-        return sha256Hex(navigator.userAgent).then(function (uaHash) {
-          const base = challengeObj.nonce + '|' + challengeObj.ts + '|' + uaHash + '|' + formFingerprint + '|';
-          let counter = 0;
-
-          function step() {
-            if (counter >= 400000) throw new Error('Unable to solve proof of work');
-
-            const candidate = String(counter);
-            counter++;
-
-            return sha256Hex(base + candidate).then(function (hash) {
-              if (hash.indexOf(prefix) === 0) {
-                return {
-                  uaHash: uaHash,
-                  powNonce: candidate,
-                  powHash: hash
-                };
-              }
-
-              if (counter % 200 === 0) {
-                return new Promise(function (resolve) {
-                  setTimeout(resolve, 0);
-                }).then(step);
-              }
-
-              return step();
-            });
-          }
-
-          return step();
-        });
-      }
-
-      function fillHiddenFields(pow, formFingerprint, formSeal) {
-        document.getElementById('submittedAt').value = String(Date.now());
-        document.getElementById('challengeToken').value = challenge.token || '';
-        document.getElementById('challengeTs').value = String(challenge.ts || '');
-        document.getElementById('powNonce').value = pow.powNonce || '';
-        document.getElementById('powHash').value = pow.powHash || '';
-        document.getElementById('uaHash').value = pow.uaHash || '';
-        document.getElementById('formFingerprint').value = formFingerprint || '';
-        document.getElementById('formSeal').value = formSeal || '';
+      function fillHiddenFields(bundle) {
+        document.getElementById('submittedAt').value = String(bundle.submittedAt);
+        document.getElementById('clientFingerprint').value = bundle.clientFingerprint;
+        document.getElementById('clientSeal').value = bundle.clientSeal;
         document.getElementById('userAgent').value = navigator.userAgent || '';
         document.getElementById('language').value = navigator.language || '';
         document.getElementById('screen').value = String(window.screen.width) + 'x' + String(window.screen.height);
@@ -504,22 +367,18 @@
         document.getElementById('loadTimestamp').value = String(loadTimestamp);
 
         [
-          'submittedAt', 'challengeToken', 'challengeTs', 'powNonce', 'powHash',
-          'uaHash', 'formFingerprint', 'formSeal'
+          'submittedAt',
+          'clientFingerprint',
+          'clientSeal',
+          'userAgent',
+          'language',
+          'screen',
+          'timezone',
+          'tzOffset',
+          'page'
         ].forEach(function (id) {
           document.getElementById(id).value = '';
         });
-
-        challenge = null;
-        requestChallenge().catch(function (err) {
-          log('Challenge refresh error:', err.message);
-          setMessage('err', 'Challenge refresh failed');
-        });
-      });
-
-      requestChallenge().catch(function (err) {
-        log('Initial challenge error:', err.message);
-        setMessage('err', 'Initial challenge failed');
       });
 
       form.addEventListener('submit', function (e) {
@@ -532,36 +391,37 @@
             setMessage('info', 'Verifying...');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying...';
-
-            if (challenge && challenge.ok) return challenge;
-            return requestChallenge();
           })
           .then(function () {
-            return buildFormFingerprint();
-          })
-          .then(function (formFingerprint) {
-            log('Form fingerprint:', formFingerprint);
+            const submittedAt = Date.now();
 
-            return solvePow(challenge, formFingerprint).then(function (pow) {
-              log('PoW solved:', pow);
+            return Promise.all([
+              buildContentFingerprint(),
+              buildClientFingerprint()
+            ]).then(function (values) {
+              const contentFingerprint = values[0];
+              const clientFingerprint = values[1];
 
-              return buildFormSeal(challenge, pow.uaHash, formFingerprint).then(function (formSeal) {
-                log('Form seal:', formSeal);
-
-                return {
-                  pow: pow,
-                  formFingerprint: formFingerprint,
-                  formSeal: formSeal
-                };
-              });
+              return buildClientSeal(contentFingerprint, clientFingerprint, submittedAt)
+                .then(function (clientSeal) {
+                  return {
+                    submittedAt: submittedAt,
+                    contentFingerprint: contentFingerprint,
+                    clientFingerprint: clientFingerprint,
+                    clientSeal: clientSeal
+                  };
+                });
             });
           })
           .then(function (bundle) {
-            fillHiddenFields(bundle.pow, bundle.formFingerprint, bundle.formSeal);
+            fillHiddenFields(bundle);
+
             log('Submitting form to backend:', {
               action: form.action,
               hearAbout: getSelectedHearAbout() ? getSelectedHearAbout().value : '',
-              otherText: document.getElementById('otherText').value
+              otherText: document.getElementById('otherText').value,
+              clientFingerprint: bundle.clientFingerprint,
+              clientSeal: bundle.clientSeal
             });
 
             isSubmitting = true;
@@ -574,7 +434,6 @@
             submitBtn.disabled = false;
             submitBtn.textContent = 'Submit';
             setMessage('err', err.message || 'Submit failed');
-            challenge = null;
           });
       });
     })();
