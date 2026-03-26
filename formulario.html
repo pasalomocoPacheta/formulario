@@ -355,58 +355,56 @@
       };
 
       function requestChallenge() {
-        return new Promise(function (resolve, reject) {
-          const old = document.getElementById('challengeScript');
-          if (old && old.parentNode) old.parentNode.removeChild(old);
-      
-          challenge = null;
-          pendingChallengeResolve = resolve;
-          pendingChallengeReject = reject;
-      
-          pendingChallengeTimer = setTimeout(function () {
-            pendingChallengeResolve = null;
-            pendingChallengeReject = null;
-            reject(new Error('Challenge timeout'));
-          }, 10000);
-      
-          const s = document.createElement('script');
-          s.id = 'challengeScript';
-          s.async = true;
-          s.src =
-            APPS_SCRIPT_URL +
-            '?action=challenge' +
-            '&callback=__belugaChallengeCallback' +
-            '&_ts=' + Date.now();
-      
-          s.onload = function () {
-            // Si carga pero no ejecuta el callback, también debe fallar.
-            setTimeout(function () {
-              if (!challenge || !challenge.ok) {
-                if (pendingChallengeTimer) {
-                  clearTimeout(pendingChallengeTimer);
-                  pendingChallengeTimer = null;
-                }
-                pendingChallengeResolve = null;
-                pendingChallengeReject = null;
-                reject(new Error('Challenge loaded but callback was not executed'));
-              }
-            }, 500);
-          };
-      
-          s.onerror = function () {
-            if (pendingChallengeTimer) {
-              clearTimeout(pendingChallengeTimer);
-              pendingChallengeTimer = null;
-            }
-      
-            pendingChallengeResolve = null;
-            pendingChallengeReject = null;
-            reject(new Error('Challenge script load failed'));
-          };
-      
-          document.body.appendChild(s);
-        });
+  return new Promise(function (resolve, reject) {
+    const old = document.getElementById('challengeScript');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    challenge = null;
+    pendingChallengeResolve = resolve;
+    pendingChallengeReject = reject;
+
+    pendingChallengeTimer = setTimeout(function () {
+      pendingChallengeResolve = null;
+      pendingChallengeReject = null;
+      reject(new Error('Challenge timeout'));
+    }, 10000);
+
+    const s = document.createElement('script');
+    s.id = 'challengeScript';
+    s.async = true;
+    s.src =
+      APPS_SCRIPT_URL +
+      '?action=challenge' +
+      '&callback=__belugaChallengeCallback' +
+      '&_ts=' + Date.now();
+
+    s.onload = function () {
+      setTimeout(function () {
+        if (!challenge || !challenge.ok) {
+          if (pendingChallengeTimer) {
+            clearTimeout(pendingChallengeTimer);
+            pendingChallengeTimer = null;
+          }
+          pendingChallengeResolve = null;
+          pendingChallengeReject = null;
+          reject(new Error('Challenge loaded but callback was not executed'));
+        }
+      }, 500);
+    };
+
+    s.onerror = function () {
+      if (pendingChallengeTimer) {
+        clearTimeout(pendingChallengeTimer);
+        pendingChallengeTimer = null;
       }
+      pendingChallengeResolve = null;
+      pendingChallengeReject = null;
+      reject(new Error('Challenge script load failed'));
+    };
+
+    document.body.appendChild(s);
+  });
+}
 
       function solvePow(challengeObj, formFingerprint) {
         const prefix = '0'.repeat(challengeObj.difficulty);
