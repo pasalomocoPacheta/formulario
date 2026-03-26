@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Backend Test Form</title>
+  <link rel="icon" href="data:,">
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -201,6 +202,7 @@
   <script>
     (function () {
       const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzVisTqPz3PFf84Cbdz42rcaAPG7An9WlimR57dAIS6NJX7GvipXOvLpk5HUW420jGm/exec';
+      const SUBMIT_TIMEOUT_MS = 20000;
 
       const form = document.getElementById('contactForm');
       const submitBtn = document.getElementById('submitBtn');
@@ -214,7 +216,7 @@
 
       let loadTimestamp = Date.now();
       let isSubmitting = false;
-      let initialFrameLoadPassed = false;
+      let submitTimeoutId = null;
 
       form.action = APPS_SCRIPT_URL;
       document.getElementById('loadTimestamp').value = String(loadTimestamp);
@@ -339,27 +341,7 @@
         document.getElementById('page').value = String(location.href || '');
       }
 
-      Array.prototype.forEach.call(hearAboutEls, function (el) {
-        el.addEventListener('change', syncOtherField);
-      });
-
-      syncOtherField();
-
-      submitFrame.addEventListener('load', function () {
-        if (!initialFrameLoadPassed) {
-          initialFrameLoadPassed = true;
-          return;
-        }
-
-        if (!isSubmitting) return;
-
-        isSubmitting = false;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Submit';
-
-        setMessage('ok', 'Form submitted. Check Google Form and Apps Script logs.');
-        log('Iframe load completed after submit.');
-
+      function resetAfterSubmit() {
         form.reset();
         syncOtherField();
 
@@ -379,6 +361,45 @@
         ].forEach(function (id) {
           document.getElementById(id).value = '';
         });
+      }
+
+      function finishSubmitAsSuccess() {
+        if (submitTimeoutId) {
+          clearTimeout(submitTimeoutId);
+          submitTimeoutId = null;
+        }
+
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+
+        setMessage('ok', 'Form submitted. Check Google Form and Apps Script logs.');
+        log('Iframe load completed after submit.');
+
+        resetAfterSubmit();
+      }
+
+      function finishSubmitAsTimeout() {
+        if (!isSubmitting) return;
+
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+        submitTimeoutId = null;
+
+        setMessage('err', 'The submission did not complete in time. Please try again.');
+        log('Submit timeout: iframe did not finish loading within timeout window.');
+      }
+
+      Array.prototype.forEach.call(hearAboutEls, function (el) {
+        el.addEventListener('change', syncOtherField);
+      });
+
+      syncOtherField();
+
+      submitFrame.addEventListener('load', function () {
+        if (!isSubmitting) return;
+        finishSubmitAsSuccess();
       });
 
       form.addEventListener('submit', function (e) {
@@ -425,11 +446,24 @@
             });
 
             isSubmitting = true;
+
+            if (submitTimeoutId) {
+              clearTimeout(submitTimeoutId);
+            }
+
+            submitTimeoutId = setTimeout(finishSubmitAsTimeout, SUBMIT_TIMEOUT_MS);
+
             form.submit();
           })
           .catch(function (err) {
             console.error(err);
             log('Submit error:', err.message);
+
+            if (submitTimeoutId) {
+              clearTimeout(submitTimeoutId);
+              submitTimeoutId = null;
+            }
+
             isSubmitting = false;
             submitBtn.disabled = false;
             submitBtn.textContent = 'Submit';
