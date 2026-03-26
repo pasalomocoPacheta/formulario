@@ -423,20 +423,6 @@
   });
 }
 
-    s.onerror = function () {
-      if (pendingChallengeTimer) {
-        clearTimeout(pendingChallengeTimer);
-        pendingChallengeTimer = null;
-      }
-      pendingChallengeResolve = null;
-      pendingChallengeReject = null;
-      reject(new Error('Challenge script load failed'));
-    };
-
-    document.body.appendChild(s);
-  });
-}
-
       function solvePow(challengeObj, formFingerprint) {
         const prefix = '0'.repeat(challengeObj.difficulty);
 
